@@ -1,4 +1,4 @@
-import { DEFAULT_SCENARIO, parseScenario, scenarioVars } from "./scenario.js";
+import { DEFAULT_SCENARIO, parseScenario, scenarioVars, fillVars } from "./scenario.js";
 
 const tg = () => import("./tg.js");
 
@@ -80,66 +80,188 @@ function consumption(rs){
 }
 
 /* ---------- render ---------- */
-function odo(value, decimals){
+function odo(value, decimals, cls=""){
   const v = value == null ? null : Number(value);
   const int = v == null ? "" : Math.floor(v).toString();
-  const width = Math.max(6, int.length);
+  const width = Math.max(5, int.length);
   let html = "";
   for (let i=0;i<width;i++){ const ch = int.padStart(width," ")[i]; html += ch===" " ? `<span class="blank">0</span>` : `<span>${ch}</span>`; }
   if (decimals > 0){
     const frac = v == null ? "".padEnd(decimals,"0") : (v - Math.floor(v)).toFixed(decimals).slice(2);
     for (const ch of frac) html += `<span class="red">${ch}</span>`;
   }
-  return `<div class="odo" aria-label="${v==null?"немає показника":num(v,decimals)}">${html}</div>`;
+  return `<div class="odo ${cls}" role="img" aria-label="${v==null?"немає показника":num(v,decimals)}">${html}</div>`;
 }
-const badge = t => `<span class="badge t-${t}"><svg viewBox="0 0 24 24" aria-hidden="true">${(TYPES[t]||TYPES.other).icon}</svg></span>`;
+const badge = (t, sm) => `<span class="res r-${TYPES[t]?t:"other"}${sm?" sm":""}"><svg viewBox="0 0 24 24" aria-hidden="true">${(TYPES[t]||TYPES.other).icon}</svg></span>`;
+const ICON = {
+  chart:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 20h16M7 16v-5M12 16V7M17 16v-8"/></svg>',
+  gear:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3h.1a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8v.1a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>',
+  send:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3.4 11.1 19.6 4.3c.9-.4 1.8.4 1.5 1.3l-3.5 13.6c-.2.9-1.3 1.2-2 .6l-4.2-3.4-2.2 2.1c-.4.4-1 .1-1-.4v-3.4l7.7-7.1-9.6 5.8-3.1-1c-.9-.3-.9-1.5 0-1.8z"/></svg>',
+  plus:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
+  pin:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="5" width="16" height="15" rx="3"/><path d="M4 10h16M8 3v4M16 3v4"/></svg>',
+  bot:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="5" y="8" width="14" height="11" rx="3"/><path d="M12 4v4M9 13h.01M15 13h.01"/></svg>',
+};
 
-function render(){
-  $("#today").textContent = today0().toLocaleDateString("uk-UA",{weekday:"long",day:"numeric",month:"long",year:"numeric"});
-  const ms = meters();
-  const board = $("#board"), rem = $("#remind");
-  if (!ms.length){
-    rem.hidden = true;
-    board.innerHTML = `<div class="empty">
-      <div><span class="eyebrow">Почніть тут</span><h2 style="margin-top:6px">Додайте свої лічильники</h2></div>
-      <p class="muted">Для кожного лічильника вкажіть особовий рахунок і дні, коли постачальник приймає показники. Застосунок нагадає, коли настане час подати, порахує спожите й суму за тарифом, а якщо в постачальника є Telegram-бот, сам передасть йому показник.</p>
-      <div class="tpls">${TEMPLATES.map((t,i)=>`<button class="btn" data-tpl="${i}">${badge(t.type)} ${esc(t.name)}</button>`).join("")}
-      <button class="btn ghost" data-act="new">Свій лічильник…</button></div></div>`;
-    return;
-  }
-  const st = ms.map(m => ({m, s: status(m)}));
-  const urgent = st.filter(x => ["open","late","unsent"].includes(x.s.code));
-  const sendable = st.filter(x => x.s.code === "unsent" && canAutoSend(x.m));
-  rem.hidden = false;
-  rem.className = "remind" + (urgent.some(x=>x.s.code==="late") ? " overdue" : urgent.length ? " alert" : "");
+function spark(m, deltas){
+  if (deltas.length < 2) return `<span class="spark" aria-hidden="true"></span>`;
+  const W = 110, H = 36, p = 3, max = Math.max(...deltas, 1e-9), min = Math.min(...deltas, 0);
+  const x = i => p + (W - 2*p) * i / (deltas.length - 1);
+  const y = v => H - p - (H - 2*p) * (v - min) / (max - min || 1);
+  const pts = deltas.map((v,i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+  const c = `var(--${TYPES[m.type]?m.type:"other"})`;
+  const last = deltas.length - 1;
+  return `<svg class="spark" viewBox="0 0 ${W} ${H}" aria-label="Споживання за останні ${deltas.length} періодів">
+    <polygon points="${x(0)},${H} ${pts} ${x(last)},${H}" fill="${c}" opacity=".14"/>
+    <polyline points="${pts}" fill="none" stroke="${c}" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>
+    <circle cx="${x(last)}" cy="${y(deltas[last])}" r="3" fill="${c}" stroke="var(--paper)" stroke-width="1.5"/></svg>`;
+}
+
+// what the primary action for a meter is right now
+function action(m, s, size="sm", short=false, label=""){
+  if (s.code === "unsent") return canAutoSend(m)
+    ? `<button class="btn ${size} tg" data-send="${m.id}">${ICON.send}${label ? `Надіслати: ${label}` : "Надіслати"}</button>`
+    : `<button class="btn ${size}" data-send="${m.id}">${label ? `Передати: ${label}` : "Передати"}</button>`;
+  return `<button class="btn ${size} ink" data-read="${m.id}">${label ? `Внести: ${label}` : short ? "Внести" : "Внести показник"}</button>`;
+}
+
+function emptyState(){
+  $("#hero").innerHTML = `<div class="empty">
+    <div style="display:flex;flex-direction:column;gap:16px">
+      <span class="eyebrow">Почніть тут</span>
+      <h2>Усі показники в одному місці</h2>
+      <p>Додайте лічильники й дні, коли постачальник приймає показники. Застосунок нагадає про подачу, порахує спожите й суму, а якщо в постачальника є Telegram-бот, сам передасть йому показник.</p>
+      <div class="tpls">${TEMPLATES.map((t,i)=>`<button class="tpl" data-tpl="${i}">${badge(t.type,1)}${esc(t.name)}</button>`).join("")}
+        <button class="btn ghost" data-act="new">Свій лічильник…</button></div>
+    </div>
+    <ol class="steps3">
+      <li><div><b>Додайте лічильник</b><div class="muted">Особовий рахунок, дні подачі й тариф із квитанції.</div></div></li>
+      <li><div><b>Підключіть Telegram</b><div class="muted">Один раз через QR-код, як Telegram Desktop.</div></div></li>
+      <li><div><b>Вносьте показник раз на місяць</b><div class="muted">Сайт сам пройде меню бота постачальника.</div></div></li>
+    </ol></div>`;
+  $("#schedule").innerHTML = ""; $("#board").innerHTML = ""; $("#dock").hidden = true;
+}
+
+const urgentOf = st => st.filter(x => ["open","late","unsent"].includes(x.s.code))
+  .sort((a,b) => (a.s.code==="late"?0:1)-(b.s.code==="late"?0:1) || a.s.w.e-b.s.w.e);
+
+function heroHtml(st){
+  const t = today0();
+  const urgent = urgentOf(st);
+  const sendable = urgent.filter(x => x.s.code === "unsent" && canAutoSend(x.m));
+  let now;
   if (urgent.length){
-    rem.innerHTML = `<div class="head"><h2>${urgent.length===1?"Потрібна ваша дія":`Потрібна дія: ${urgent.length} ${plural(urgent.length,"лічильник","лічильники","лічильників")}`}</h2>
-        ${sendable.length > 1 ? `<button class="btn tg sm" data-sendall>Надіслати всі (${sendable.length})</button>` : ""}</div>
-      <ul>${urgent.map(({m,s})=>`<li>${badge(m.type)}<button class="lnk" data-${s.code==="unsent"?"send":"read"}="${m.id}">${esc(m.name)}</button>
-        <span class="pill ${s.cls}">${s.label}</span><span class="muted">вікно ${fmtDate(s.w.s)} – ${fmtDate(s.w.e)}</span></li>`).join("")}</ul>`;
+    const n = urgent.length, onlyUnsent = urgent.every(x => x.s.code === "unsent");
+    const head = onlyUnsent ? `Надішліть ${n} ${plural(n,"показник","показники","показників")}` : `Подайте ${n} ${plural(n,"показник","показники","показників")}`;
+    const first = urgent[0].s, left = Math.round((first.w.e - t)/DAY);
+    const sub = first.code === "late" ? `Вікно подачі для «${esc(urgent[0].m.name)}» закрилося ${fmtDate(first.w.e)}. Постачальник порахує за середнім, тож краще подати якнайшвидше.`
+      : onlyUnsent ? "Показники внесено, лишилося передати їх постачальникам."
+      : `Найближчий останній день — ${fmtDate(first.w.e)}${left===0?", це сьогодні":`, лишилось ${days(left)}`}.`;
+    now = `<span class="eyebrow">Зараз</span><h2>${head}</h2><p class="sub">${sub}</p>
+      <ul class="todo">${urgent.map(({m,s}) => `<li>${badge(m.type,1)}<div class="t-main"><b>${esc(m.name)}</b><span>${s.label}<span class="wide"> · вікно ${fmtDate(s.w.s)} – ${fmtDate(s.w.e)}</span></span></div>${action(m,s,"sm",true)}</li>`).join("")}</ul>
+      ${sendable.length > 1 ? `<div><button class="btn tg" data-sendall>${ICON.send}Надіслати всі (${sendable.length})</button></div>` : ""}`;
   } else {
     const nx = st.slice().sort((a,b)=>a.s.next.s-b.s.next.s)[0];
-    rem.innerHTML = `<div class="head"><h2>Усе подано</h2><span class="muted">Наступне: ${esc(nx.m.name)}, з ${fmtDate(nx.s.next.s)}</span></div>`;
+    const inDays = Math.round((nx.s.next.s - t)/DAY);
+    now = `<span class="eyebrow">Зараз</span><h2>Усе подано. <em>Наступна подача ${fmtDate(nx.s.next.s)}.</em></h2>
+      <p class="sub">${esc(nx.m.name)}: вікно відкриється ${inDays<=1?(inDays===0?"сьогодні":"завтра"):`через ${days(inDays)}`}. Щоб телефон нагадав, додайте вікна подачі в календар.</p>
+      <div><button class="btn" id="hero-ics">${ICON.pin}Додати в календар</button></div>`;
   }
-  board.innerHTML = `<div class="grid">${st.map(({m,s}) => {
-    const rs = readingsOf(m.id), c = consumption(rs), lastC = c[c.length-1];
-    const bot = botName(m.bot);
-    return `<article class="card">
-      <div class="row"><div class="name">${badge(m.type)}<div><h3>${esc(m.name)}</h3><div class="muted" style="font-size:13px">${esc(m.provider||TYPES[m.type]?.label||"")}</div></div></div>
-        <span class="pill ${s.cls}">${s.label}</span></div>
-      <div class="odo-wrap">${odo(s.last?.value, m.decimals)}<span class="unit">${esc(m.unit)}</span></div>
-      <dl class="meta">
-        <dt>Останній</dt><dd>${s.last ? fmtShort(s.last.date) + (s.last.sentAt ? " · надіслано боту" : "") : "ще не вносили"}</dd>
-        ${lastC ? `<dt>Спожито</dt><dd>${num(lastC.delta, m.decimals)} ${esc(m.unit)}${m.tariff ? ` · ${money(lastC.delta*m.tariff)}` : ""}</dd>` : ""}
-        <dt>Подача</dt><dd>${m.from}–${m.to} числа</dd>
-        ${m.account ? `<dt>Рахунок</dt><dd>${esc(m.account)}</dd>` : ""}
-        ${bot ? `<dt>Бот</dt><dd>@${esc(bot)}${canAutoSend(m) ? "" : " · сценарій не налаштовано"}</dd>` : ""}
-      </dl>
-      <div class="foot"><button class="btn primary sm" data-read="${m.id}">Внести показник</button>
-        ${s.code==="unsent" ? `<button class="btn tg sm" data-send="${m.id}">Надіслати</button>` : ""}
-        <button class="btn sm" data-hist="${m.id}">Історія</button>
-        <button class="btn sm ghost" data-edit="${m.id}">Налаштування</button></div>
-    </article>`;}).join("")}</div>`;
+  // estimated bill from the latest period of every meter that has a tariff
+  const parts = st.map(({m}) => { const c = consumption(readingsOf(m.id)); const l = c[c.length-1]; return l && m.tariff ? {m, sum: Math.max(0,l.delta)*m.tariff} : null; }).filter(Boolean);
+  const total = parts.reduce((a,p)=>a+p.sum,0);
+  const [whole, cents] = total.toFixed(2).split(".");
+  const bill = parts.length
+    ? `<span class="eyebrow">Орієнтовно за останній період</span>
+      <div class="big num">${Number(whole).toLocaleString("uk-UA")}<small>,${cents} грн</small></div>
+      <div class="stack" aria-hidden="true">${parts.map(p=>`<i style="width:${(p.sum/total*100).toFixed(2)}%;background:var(--${TYPES[p.m.type]?p.m.type:"other"})"></i>`).join("")}</div>
+      <ul class="legend">${parts.map(p=>`<li><i class="sw" style="background:var(--${TYPES[p.m.type]?p.m.type:"other"})"></i><span>${esc(p.m.name)}</span><b class="num">${money(p.sum)}</b></li>`).join("")}</ul>
+      <p class="hint">Спожите × тариф з налаштувань. Без абонплати, пільг і боргів, тому сума в квитанції може відрізнятися.</p>`
+    : `<span class="eyebrow">Орієнтовна сума</span><p class="muted">Вкажіть тариф у налаштуваннях лічильника і внесіть два показники поспіль, щоб бачити, скільки орієнтовно платити.</p>`;
+  return `<div class="hero"><div class="now">${now}</div><aside class="bill">${bill}</aside></div>`;
+}
+
+function scheduleHtml(ms){
+  const t = today0(), y = t.getFullYear(), mo = t.getMonth();
+  const N = new Date(y, mo+1, 0).getDate();
+  const pos = d => ((d-1)/N*100).toFixed(3);
+  const rows = ms.map(m => {
+    const rs = readingsOf(m.id);
+    let bars = "";
+    for (const k of [-1,0,1]){
+      const w = windowAt(m, y, mo+k);
+      const s = w.s < new Date(y,mo,1) ? 1 : (w.s.getMonth()===mo ? w.s.getDate() : null);
+      const e = w.e > new Date(y,mo,N) ? N : (w.e.getMonth()===mo ? w.e.getDate() : null);
+      if (s == null || e == null || w.e < new Date(y,mo,1) || w.s > new Date(y,mo,N)) continue;
+      const done = rs.some(r => { const d = parseISO(r.date); return d >= new Date(w.s - 5*DAY) && d <= w.e; });
+      bars += `<i class="win${done?" done":""}" style="left:${pos(s)}%;width:${((e-s+1)/N*100).toFixed(3)}%" title="${fmtDate(w.s)} – ${fmtDate(w.e)}${done?", подано":""}"></i>`;
+    }
+    const marks = rs.filter(r => { const d = parseISO(r.date); return d.getFullYear()===y && d.getMonth()===mo; })
+      .map(r => `<i class="mark" style="left:${((parseISO(r.date).getDate()-.5)/N*100).toFixed(3)}%" title="Показник ${num(r.value,m.decimals)} · ${fmtShort(r.date)}"></i>`).join("");
+    return `<div class="lbl">${badge(m.type,1)}<span>${esc(m.name)}</span></div>
+      <div class="track r-${TYPES[m.type]?m.type:"other"}" style="--days:${N}">${bars}${marks}<i class="today-line" style="left:${((t.getDate()-.5)/N*100).toFixed(3)}%"></i></div>`;
+  }).join("");
+  const ticks = [...new Set([1,5,10,15,20,25,N,t.getDate()])].sort((a,b)=>a-b)
+    .filter(d => d===t.getDate() || Math.abs(d-t.getDate())>1)
+    .map(d => `<span class="${d===t.getDate()?"today":""}" style="left:${((d-.5)/N*100).toFixed(3)}%">${d}</span>`).join("");
+  const monthName = t.toLocaleDateString("uk-UA",{month:"long"});
+  return `<div class="panel">
+    <div class="panel-head"><h2>Графік подачі · ${monthName[0].toUpperCase()+monthName.slice(1)}</h2>
+      <div class="sched-key"><span><i style="background:color-mix(in srgb,var(--ink) 18%,transparent);border:1.5px solid var(--ink-2)"></i>вікно подачі</span><span><i style="background:var(--ink-2)"></i>подано</span><span><i style="width:10px;border-radius:50%;background:var(--ink)"></i>показник</span></div></div>
+    <div class="sched">
+      <div></div><div class="days" style="position:relative">${ticks}</div>
+      ${rows}
+    </div></div>`;
+}
+
+function cardHtml(m, s){
+  const rs = readingsOf(m.id), c = consumption(rs), lastC = c[c.length-1];
+  const bot = botName(m.bot);
+  return `<article class="card">
+    <div class="row"><div class="name">${badge(m.type)}<div><h3>${esc(m.name)}</h3><div class="prov">${esc(m.provider||TYPES[m.type]?.label||"")}</div></div></div>
+      <span class="pill ${s.cls}">${s.label}</span></div>
+    <div class="reading"><div>${odo(s.last?.value, m.decimals)}<span class="unit">${esc(m.unit)}</span></div>${spark(m, c.slice(-7).map(x=>Math.max(0,x.delta)))}</div>
+    <dl class="facts">
+      <div><dt>Останній</dt><dd>${s.last ? fmtShort(s.last.date).slice(0,5) : "—"}</dd></div>
+      <div><dt>Спожито</dt><dd>${lastC ? `${num(lastC.delta, m.decimals)}<small> ${esc(m.unit)}</small>` : "—"}</dd></div>
+      <div><dt>Сума, грн</dt><dd>${lastC && m.tariff ? num(Math.max(0,lastC.delta)*m.tariff, 2) : "—"}</dd></div>
+    </dl>
+    <div class="meta">
+      <span>${ICON.pin}${m.from}–${m.to} числа</span>
+      ${m.account ? `<span>о/р ${esc(m.account)}</span>` : ""}
+      ${bot ? `<span>${ICON.bot}@${esc(bot)}${canAutoSend(m) ? "" : " · без сценарію"}</span>` : ""}
+    </div>
+    <div class="foot">${action(m, s)}<span class="grow"></span>
+      <button class="btn sm icon ghost" data-hist="${m.id}" title="Історія" aria-label="Історія: ${esc(m.name)}">${ICON.chart}</button>
+      <button class="btn sm icon ghost" data-edit="${m.id}" title="Налаштування" aria-label="Налаштування: ${esc(m.name)}">${ICON.gear}</button></div>
+  </article>`;
+}
+
+function render(){
+  const tl = today0().toLocaleDateString("uk-UA",{weekday:"long",day:"numeric",month:"long"});
+  $("#today").textContent = tl;
+  const ms = meters();
+  if (!ms.length) return emptyState();
+  const st = ms.map(m => ({m, s: status(m)}));
+  $("#hero").innerHTML = heroHtml(st);
+  $("#hero-ics")?.addEventListener("click", () => $("#ics-btn").click());
+  $("#schedule").innerHTML = scheduleHtml(ms);
+  $("#board").innerHTML = `<div style="display:flex;flex-direction:column;gap:12px">
+    <div class="section-head"><h2>Лічильники</h2><span class="muted num">${ms.length}</span></div>
+    <div class="grid">${st.map(({m,s}) => cardHtml(m,s)).join("")}</div></div>`;
+  // phone: one obvious thing to do, always within thumb reach
+  const urgent = urgentOf(st);
+  const sendable = urgent.filter(x => x.s.code === "unsent" && canAutoSend(x.m));
+  const dock = $("#dock"); dock.hidden = false;
+  dock.innerHTML = sendable.length > 1 ? `<button class="btn tg" data-sendall>${ICON.send}Надіслати всі (${sendable.length})</button>`
+    : urgent.length ? action(urgent[0].m, urgent[0].s, "", false, esc(urgent[0].m.name))
+    : `<button class="btn ink" data-pick>${ICON.plus}Внести показник</button>`;
+}
+
+function pickMeter(){
+  const ms = meters();
+  if (ms.length === 1) return readingForm(ms[0]);
+  openSheet(`<div class="bar"><div><span class="eyebrow">Новий показник</span><h2>Який лічильник?</h2></div><button class="x" data-close aria-label="Закрити">×</button></div>
+    <ul class="todo">${ms.map(m => `<li>${badge(m.type,1)}<div class="t-main"><b>${esc(m.name)}</b><span>${esc(m.provider||"")}</span></div><button class="btn sm ink" data-read="${m.id}">Внести</button></li>`).join("")}</ul>`);
 }
 
 /* ---------- sheets ---------- */
@@ -184,17 +306,21 @@ function meterForm(m){
           Підстановки: <code>{показник}</code> (ціле число), <code>{показник_точно}</code>, <code>{рахунок}</code>, <code>{дата}</code>.
           Останній рядок <code>очікувати …</code> перевіряє, що бот прийняв показник.</span>
         <span class="note-warn" id="m-scn-err" hidden></span></div>
+      <div class="fld"><span class="eyebrow">Як це виконається</span><ol class="steps" id="m-scn-prev"></ol></div>
     </fieldset>
     <div class="fld"><label for="m-link">Інший спосіб подачі (для нагадувань)</label><input id="m-link" value="${esc(m.link||"")}" placeholder="Сайт, застосунок або телефон"></div>
     <div class="form-actions">
       ${isNew ? "<span></span>" : `<button type="button" class="btn danger" id="m-del">Видалити лічильник</button>`}
-      <div class="actions"><button type="button" class="btn ghost" data-close>Скасувати</button><button class="btn primary">${isNew?"Додати":"Зберегти"}</button></div>
+      <div class="actions"><button type="button" class="btn ghost" data-close>Скасувати</button><button class="btn ink">${isNew?"Додати":"Зберегти"}</button></div>
     </div>
   </form>`, s => {
     s.querySelector("#m-type").addEventListener("change", e => {
       const nt = TYPES[e.target.value];
       if (isNew){ s.querySelector("#m-unit").value = nt.unit; s.querySelector("#m-dec").value = nt.decimals; s.querySelector("#m-from").value = nt.from; s.querySelector("#m-to").value = nt.to; s.querySelector("#m-tar").value = nt.tariff; }
     });
+    const scn = s.querySelector("#m-scn"), prevList = s.querySelector("#m-scn-prev"), scnErr = s.querySelector("#m-scn-err");
+    const preview = () => { const { steps, errors } = parseScenario(scn.value); prevList.innerHTML = stepsHtml(steps); scnErr.hidden = !errors.length; scnErr.textContent = errors.join(" "); };
+    scn.addEventListener("input", preview); preview();
     s.querySelector("#mf").addEventListener("submit", e => {
       e.preventDefault();
       const g = id => s.querySelector(id).value.trim();
@@ -224,27 +350,35 @@ function meterForm(m){
 function readingForm(m){
   const rs = readingsOf(m.id), prev = rs[rs.length-1];
   const auto = canAutoSend(m);
+  // typical monthly use from the last three periods, to sanity-check the new number
+  const recent = consumption(rs).slice(-3).map(x => x.delta).filter(d => d > 0);
+  const avg = recent.length ? recent.reduce((a,b)=>a+b,0)/recent.length : null;
   openSheet(`<div class="bar"><div class="name">${badge(m.type)}<div><span class="eyebrow">Новий показник</span><h2>${esc(m.name)}</h2></div></div><button class="x" data-close aria-label="Закрити">×</button></div>
   <form class="f" id="rf">
-    <div class="fld big"><label for="r-val">Показник, ${esc(m.unit)}</label><input id="r-val" inputmode="decimal" autocomplete="off" required autofocus placeholder="${prev ? num(prev.value, m.decimals) : "00000"}"></div>
-    <div class="fld"><label for="r-date">Дата зняття</label><input id="r-date" type="date" value="${toISO(today0())}" required></div>
-    <div class="calc" id="r-calc"></div>
+    <div class="entry">
+      <div id="r-odo">${odo(prev?.value ?? null, m.decimals, "lg")}</div>
+      <label for="r-val" class="hint">Перепишіть усі чорні цифри${m.decimals ? " і червоні після коми" : ""}, ${esc(m.unit)}</label>
+      <input id="r-val" inputmode="decimal" autocomplete="off" required autofocus placeholder="${prev ? num(prev.value, m.decimals).replace(/\s/g,"") : "0"}">
+      <div class="expect">${prev && avg ? `Зазвичай близько <b class="num">${num(prev.value + avg, m.decimals)}</b> (≈ +${num(avg, m.decimals)} ${esc(m.unit)} за місяць)` : prev ? `Не менше <b class="num">${num(prev.value, m.decimals)}</b>, як минулого разу` : "Перший показник: з ним порівнюватимемо наступні"}</div>
+    </div>
+    <dl class="calc" id="r-calc"></dl>
     <div class="note-warn" id="r-warn" hidden></div>
-    <div class="form-actions"><span></span><div class="actions"><button type="button" class="btn ghost" data-close>Скасувати</button>
-      ${auto ? `<button type="submit" class="btn" value="save">Лише зберегти</button><button type="submit" class="btn tg" value="send">Зберегти й надіслати боту</button>` : `<button class="btn primary" value="save">Зберегти показник</button>`}</div></div>
+    <div class="fld"><label for="r-date">Дата зняття</label><input id="r-date" type="date" value="${toISO(today0())}" required></div>
+    <div class="form-actions"><button type="button" class="btn ghost" data-close>Скасувати</button><div class="actions">
+      ${auto ? `<button type="submit" class="btn" value="save">Лише зберегти</button><button type="submit" class="btn tg" value="send">${ICON.send}Зберегти й надіслати</button>` : `<button class="btn ink" value="save">Зберегти показник</button>`}</div></div>
   </form>`, s => {
-    const val = s.querySelector("#r-val"), calc = s.querySelector("#r-calc"), warn = s.querySelector("#r-warn");
+    const val = s.querySelector("#r-val"), calc = s.querySelector("#r-calc"), warn = s.querySelector("#r-warn"), od = s.querySelector("#r-odo");
     const parse = () => parseFloat(val.value.replace(/\s/g,"").replace(",", "."));
     const upd = () => {
-      const v = parse();
-      let rows = `<span class="muted">Попередній</span><b>${prev ? `${num(prev.value,m.decimals)} · ${fmtShort(prev.date)}` : "—"}</b>`;
-      if (prev && !isNaN(v)){
-        const d = v - prev.value;
-        rows += `<span class="muted">Спожито</span><b>${num(d,m.decimals)} ${esc(m.unit)}</b>`;
-        if (m.tariff) rows += `<span class="muted">До сплати за тарифом ${num(m.tariff,4)} грн</span><b>${money(Math.max(0,d)*m.tariff)}</b>`;
-        warn.hidden = d >= 0; warn.textContent = "Показник менший за попередній. Перевірте цифри, особливо червоні барабани після коми.";
-      } else warn.hidden = true;
-      calc.innerHTML = rows;
+      const v = parse(), ok = !isNaN(v);
+      od.innerHTML = odo(ok ? v : prev?.value ?? null, m.decimals, "lg");
+      const d = prev && ok ? v - prev.value : null;
+      calc.innerHTML = `<div><dt>Попередній</dt><dd>${prev ? num(prev.value,m.decimals) : "—"}</dd></div>
+        <div><dt>Спожито</dt><dd>${d==null ? "—" : `${num(d,m.decimals)} ${esc(m.unit)}`}</dd></div>
+        <div><dt>Сума</dt><dd>${d!=null && m.tariff ? money(Math.max(0,d)*m.tariff) : "—"}</dd></div>`;
+      if (d != null && d < 0) { warn.hidden = false; warn.textContent = "Показник менший за попередній. Перевірте цифри, особливо червоні барабани після коми."; }
+      else if (d != null && avg && d > avg * 3) { warn.hidden = false; warn.textContent = `Утричі більше, ніж зазвичай (${num(avg,m.decimals)} ${m.unit}). Можливо, зайва цифра або червоні цифри потрапили до чорних.`; }
+      else warn.hidden = true;
     };
     val.addEventListener("input", upd); upd();
     s.querySelector("#rf").addEventListener("submit", e => {
@@ -270,7 +404,7 @@ function submitHelp(m, v, date){
     : m.link && /^https?:\/\//i.test(m.link) ? `<a class="btn" href="${esc(m.link)}" target="_blank" rel="noopener">Відкрити сайт постачальника</a>` : "";
   openSheet(`<div class="bar"><div><span class="eyebrow">Збережено</span><h2>Передайте показник постачальнику</h2></div><button class="x" data-close aria-label="Закрити">×</button></div>
     <p class="muted">Скопіюйте текст і вставте його там, де ви подаєте показники${m.link && !link ? `: <b>${esc(m.link)}</b>` : ""}.${bot && !canAutoSend(m) ? " Щоб застосунок надсилав сам, налаштуйте сценарій бота в налаштуваннях лічильника." : ""}</p>
-    <div class="copybox"><code id="cp-text">${esc(txt)}</code><button class="btn primary" id="cp-btn">Скопіювати</button></div>
+    <div class="copybox"><code id="cp-text">${esc(txt)}</code><button class="btn ink" id="cp-btn">Скопіювати</button></div>
     <div class="actions">${link}<button class="btn ghost" data-close>Готово</button></div>`, s => {
       s.querySelector("#cp-btn").addEventListener("click", () => copy(txt, s.querySelector("#cp-text")));
     });
@@ -436,6 +570,7 @@ async function sendFlow(items){
   if (!cfg.hasSession) { toast("Спершу увійдіть у Telegram"); return telegramSheet(); }
   const ctl = new AbortController();
   openSheet(`<div class="bar"><div><span class="eyebrow">Надсилання через Telegram</span><h2 id="sf-title">${items.length === 1 ? esc(items[0].meter.name) : `${items.length} показники`}</h2></div></div>
+    <ol class="steps" id="sf-steps"></ol>
     <div class="log" id="sf-log" aria-live="polite"></div>
     <div class="actions" id="sf-act"><button class="btn danger" id="sf-stop">Зупинити</button></div>`);
   sheetLocked = true;
@@ -448,8 +583,12 @@ async function sendFlow(items){
     const r = docs[readingId]; if (!r) continue;
     const bot = botName(meter.bot);
     add("sys", `${meter.name}: ${num(r.value, meter.decimals)} ${meter.unit} → @${bot}`);
+    const steps = parseScenario(meter.scenario).steps, vars = scenarioVars(meter, r);
+    const list = $("#sf-steps");
+    list.innerHTML = stepsHtml(steps, vars);
     try {
-      await runScenario({ bot, steps: parseScenario(meter.scenario).steps, vars: scenarioVars(meter, r), signal: ctl.signal,
+      await runScenario({ bot, steps, vars, signal: ctl.signal,
+        onStep: (i, state) => { const li = list.children[i]; if (li) li.className = (li.className.replace(/\b(run|ok|err)\b/g,"").trim() + " " + state).trim(); },
         onLog: ({who, text, buttons}) => add(who === "me" ? "me" : who === "sys" ? "sys" : "bot", text, buttons?.length ? `<div class="hint" style="margin-top:4px">${buttons.map(esc).join(" · ")}</div>` : "") });
       docs[readingId] = { ...docs[readingId], sentAt: new Date().toISOString() }; saveLocal(); render();
       add("sys ok", "Показник прийнято ✓");
@@ -465,7 +604,14 @@ async function sendFlow(items){
     ? `<a class="btn tg" href="https://t.me/${encodeURIComponent(bot)}" target="_blank" rel="noopener">Дописати вручну в @${esc(bot)}</a>
        <button class="btn" data-markr="${esc(failed.readingId)}">Я надіслав вручну</button>
        <button class="btn" data-edit="${failed.meter.id}">Змінити сценарій</button><button class="btn ghost" data-close>Закрити</button>`
-    : `<button class="btn primary" data-close>Готово</button>`;
+    : `<button class="btn ink" data-close>Готово</button>`;
+}
+
+const OP_LABEL = { send:"надіслати", click:"натиснути", expect:"чекати", failIf:"зупинити, якщо", pause:"пауза", bot:"бот" };
+function stepsHtml(steps, vars){
+  return steps.map(st => st.op === "bot"
+    ? `<li class="bot"><span class="op">→ ${esc(st.arg)}</span></li>`
+    : `<li><span class="op">${OP_LABEL[st.op]}</span><span class="arg">${st.op==="pause" ? `${st.ms/1000} с` : esc(vars ? fillVars(st.arg, vars) : st.arg)}</span></li>`).join("");
 }
 
 /* ---------- history ---------- */
@@ -500,7 +646,7 @@ function history(m){
   openSheet(`<div class="bar"><div class="name">${badge(m.type)}<div><span class="eyebrow">Історія · ${esc(m.unit)}</span><h2>${esc(m.name)}</h2></div></div><button class="x" data-close aria-label="Закрити">×</button></div>
     ${chart}
     ${rs.length ? `<div class="tablewrap"><table><thead><tr><th>Дата</th><th class="num">Показник</th><th class="num">Спожито</th>${m.tariff?`<th class="num">Сума</th>`:""}<th>Надіслано</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>` : `<p class="muted">Показників ще немає.</p>`}
-    <div class="actions"><button class="btn primary" id="h-add">Внести показник</button></div>`, s => {
+    <div class="actions"><button class="btn ink" id="h-add">Внести показник</button></div>`, s => {
       s.querySelector("#h-add").addEventListener("click", () => readingForm(m));
       s.querySelectorAll("[data-delr]").forEach(b => armed(b, "Точно?", () => { remove(b.dataset.delr); history(m); }));
       s.querySelectorAll("[data-copyr]").forEach(b => b.addEventListener("click", () => { const r = docs[b.dataset.copyr]; submitHelp(m, r.value, r.date); }));
@@ -571,6 +717,7 @@ document.addEventListener("click", e => {
   if (b.id === "tg-btn") return telegramSheet();
   if (b.dataset.tpl != null) return meterForm({...TEMPLATES[b.dataset.tpl]});
   if (b.dataset.read) return readingForm(find(b.dataset.read));
+  if (b.dataset.pick != null) return pickMeter();
   if (b.dataset.hist) return history(find(b.dataset.hist));
   if (b.dataset.edit) { sheetLocked = false; return meterForm(find(b.dataset.edit)); }
   if (b.dataset.markr) { const id = b.dataset.markr; if (docs[id]) { docs[id] = {...docs[id], sentAt:new Date().toISOString(), sentManually:true}; saveLocal(); render(); } closeSheet(); return toast("Позначено як надіслане"); }

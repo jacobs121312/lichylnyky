@@ -161,7 +161,7 @@ async function snapshot(c, peer) {
   return { msgs, map };
 }
 
-export async function runScenario({ bot, steps, vars, onLog, signal }) {
+export async function runScenario({ bot, steps, vars, onLog, onStep, signal }) {
   const c = await getClient();
   if (!c) throw new Error("Спершу увійдіть у Telegram");
   const resolve = (name) => c.getInputEntity(name.trim().replace(/^https?:\/\/t\.me\//, "").replace(/^@/, ""));
@@ -191,9 +191,10 @@ export async function runScenario({ bot, steps, vars, onLog, signal }) {
   }
 
   const recentReplies = [];
-  for (const step of steps) {
+  // each step reports run → ok / err so the page can show progress
+  const runStep = async (step) => {
     stopIfAborted();
-    if (step.op === "pause") { await sleep(step.ms); continue; }
+    if (step.op === "pause") { await sleep(step.ms); return; }
 
     // one reading can go to several bots (e.g. hot water: Vodokanal and the heat supplier)
     if (step.op === "bot") {
@@ -201,14 +202,14 @@ export async function runScenario({ bot, steps, vars, onLog, signal }) {
       snap = await snapshot(c, peer);
       recentReplies.length = 0;
       onLog({ who: "sys", text: `→ ${step.arg}` });
-      continue;
+      return;
     }
 
     if (step.op === "failIf") {
       const bad = norm(fillVars(step.arg, vars));
       const hit = recentReplies.find((m) => norm(m.message).includes(bad));
       if (hit) throw new Error(`Бот відповів: «${hit.message}»`);
-      continue;
+      return;
     }
 
     if (step.op === "send") {
@@ -218,7 +219,7 @@ export async function runScenario({ bot, steps, vars, onLog, signal }) {
       said(text);
       await c.sendMessage(peer, { message: text });
       recentReplies.push(...(await waitReply()));
-      continue;
+      return;
     }
 
     if (step.op === "click") {
@@ -243,7 +244,7 @@ export async function runScenario({ bot, steps, vars, onLog, signal }) {
         throw new Error(`Рядок ${step.line}: кнопку «${found.b.text}» не можна натиснути автоматично (це посилання або запит контакту)`);
       }
       recentReplies.push(...(await waitReply()));
-      continue;
+      return;
     }
 
     if (step.op === "expect") {
@@ -252,6 +253,11 @@ export async function runScenario({ bot, steps, vars, onLog, signal }) {
       if (!hit()) recentReplies.push(...(await waitReply(10000)));
       if (!hit()) throw new Error(`Рядок ${step.line}: бот не відповів «${step.arg}». Перевірте відповідь вище.`);
     }
+  };
+  for (const [i, step] of steps.entries()) {
+    onStep?.(i, "run");
+    try { await runStep(step); } catch (e) { onStep?.(i, "err"); throw e; }
+    onStep?.(i, "ok");
   }
   return { ok: true };
 }
