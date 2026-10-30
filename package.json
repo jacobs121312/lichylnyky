@@ -1,0 +1,17 @@
+{
+  "name": "lichylnyky",
+  "version": "1.0.0",
+  "scripts": {
+    "build": "node build.mjs",
+    "dev": "node build.mjs --serve"
+  },
+  "type": "module",
+  "dependencies": {
+    "buffer": "6.0.3",
+    "telegram": "2.26.21"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.0"
+  },
+  "private": "true"
+}
