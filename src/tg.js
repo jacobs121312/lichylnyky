@@ -164,7 +164,8 @@ async function snapshot(c, peer) {
 export async function runScenario({ bot, steps, vars, onLog, signal }) {
   const c = await getClient();
   if (!c) throw new Error("Спершу увійдіть у Telegram");
-  const peer = await c.getInputEntity(bot.replace(/^@/, "").replace(/^https?:\/\/t\.me\//, ""));
+  const resolve = (name) => c.getInputEntity(name.trim().replace(/^https?:\/\/t\.me\//, "").replace(/^@/, ""));
+  let peer = await resolve(bot);
   let snap = await snapshot(c, peer);
   const said = (text) => onLog({ who: "me", text });
   const stopIfAborted = () => { if (signal?.aborted) throw new Error("Зупинено"); };
@@ -193,6 +194,22 @@ export async function runScenario({ bot, steps, vars, onLog, signal }) {
   for (const step of steps) {
     stopIfAborted();
     if (step.op === "pause") { await sleep(step.ms); continue; }
+
+    // one reading can go to several bots (e.g. hot water: Vodokanal and the heat supplier)
+    if (step.op === "bot") {
+      peer = await resolve(step.arg);
+      snap = await snapshot(c, peer);
+      recentReplies.length = 0;
+      onLog({ who: "sys", text: `→ ${step.arg}` });
+      continue;
+    }
+
+    if (step.op === "failIf") {
+      const bad = norm(fillVars(step.arg, vars));
+      const hit = recentReplies.find((m) => norm(m.message).includes(bad));
+      if (hit) throw new Error(`Бот відповів: «${hit.message}»`);
+      continue;
+    }
 
     if (step.op === "send") {
       const text = fillVars(step.arg, vars);

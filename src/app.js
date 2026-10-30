@@ -180,7 +180,7 @@ function meterForm(m){
       <div class="fld"><label for="m-bot">Бот постачальника</label><input id="m-bot" value="${esc(m.bot ? "@"+botName(m.bot) : "")}" placeholder="@назва_бота" autocapitalize="off" spellcheck="false"></div>
       <div class="fld"><label for="m-scn">Сценарій</label><textarea id="m-scn" spellcheck="false">${esc(m.scenario || DEFAULT_SCENARIO)}</textarea>
         <span class="hint">Запишіть кроки, які ви робите в боті вручну, по одному на рядок:
-          <code>надіслати текст</code> · <code>натиснути Текст кнопки</code> · <code>очікувати слово з відповіді</code> · <code>пауза 2</code>.
+          <code>надіслати текст</code> · <code>натиснути Текст кнопки</code> · <code>очікувати слово з відповіді</code> · <code>зупинити_якщо слово з помилки</code> · <code>бот @інший_бот</code> · <code>пауза 2</code>.
           Підстановки: <code>{показник}</code> (ціле число), <code>{показник_точно}</code>, <code>{рахунок}</code>, <code>{дата}</code>.
           Останній рядок <code>очікувати …</code> перевіряє, що бот прийняв показник.</span>
         <span class="note-warn" id="m-scn-err" hidden></span></div>
@@ -450,7 +450,7 @@ async function sendFlow(items){
     add("sys", `${meter.name}: ${num(r.value, meter.decimals)} ${meter.unit} → @${bot}`);
     try {
       await runScenario({ bot, steps: parseScenario(meter.scenario).steps, vars: scenarioVars(meter, r), signal: ctl.signal,
-        onLog: ({who, text, buttons}) => add(who === "me" ? "me" : "bot", text, buttons?.length ? `<div class="hint" style="margin-top:4px">${buttons.map(esc).join(" · ")}</div>` : "") });
+        onLog: ({who, text, buttons}) => add(who === "me" ? "me" : who === "sys" ? "sys" : "bot", text, buttons?.length ? `<div class="hint" style="margin-top:4px">${buttons.map(esc).join(" · ")}</div>` : "") });
       docs[readingId] = { ...docs[readingId], sentAt: new Date().toISOString() }; saveLocal(); render();
       add("sys ok", "Показник прийнято ✓");
     } catch (e) {

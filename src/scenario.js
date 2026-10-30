@@ -8,6 +8,8 @@ const OPS = {
   "натиснути": "click", "click": "click",
   "очікувати": "expect", "expect": "expect",
   "пауза": "pause", "pause": "pause",
+  "бот": "bot", "bot": "bot",
+  "зупинити_якщо": "failIf", "fail_if": "failIf",
 };
 
 export const DEFAULT_SCENARIO = [
@@ -28,7 +30,7 @@ export function parseScenario(text) {
     const word = (sp < 0 ? line : line.slice(0, sp)).toLowerCase();
     const arg = sp < 0 ? "" : line.slice(sp + 1).trim();
     const op = OPS[word];
-    if (!op) return errors.push(`Рядок ${i + 1}: невідома дія «${word}». Можна: надіслати, натиснути, очікувати, пауза.`);
+    if (!op) return errors.push(`Рядок ${i + 1}: невідома дія «${word}». Можна: надіслати, натиснути, очікувати, зупинити_якщо, бот, пауза.`);
     if (op === "pause") {
       const sec = parseFloat(arg.replace(",", "."));
       if (!(sec > 0 && sec <= 60)) return errors.push(`Рядок ${i + 1}: пауза в секундах, від 1 до 60.`);
