@@ -99,3 +99,20 @@ test("readings are sent as whole numbers, {показник_точно} keeps th
   assert.equal(v["показник_точно"], "312,457");
   assert.equal(v["дата"], "30.10.2026");
 });
+
+test("sync file round-trips through Saved Messages", async () => {
+  const { syncPull, syncPush } = await import("../src/tg.js");
+  const saved = [];
+  const client = {
+    async getMessages(peer, { search }) { return saved.filter((m) => m.text.includes(search)).slice().reverse(); },
+    async downloadMedia(m) { return m.buf; },
+    async sendFile(peer, { file, caption }) { const m = { id: saved.length + 1, text: caption, media: { document: {} }, buf: file.buffer }; saved.push(m); return m; },
+    async editMessage(peer, { message, text, file }) { const m = saved.find((x) => x.id === message); m.text = text; m.buf = file.buffer; return m; },
+  };
+  assert.equal(await syncPull(client), null);
+  const id = await syncPush({ docs: { a: { u: 1 } }, deleted: {} }, null, client);
+  assert.deepEqual((await syncPull(client)).data.docs, { a: { u: 1 } });
+  assert.equal(await syncPush({ docs: { a: { u: 2 } }, deleted: {} }, id, client), id);
+  assert.equal(saved.length, 1, "the same message is updated, not a new one each time");
+  assert.equal((await syncPull(client)).data.docs.a.u, 2);
+});

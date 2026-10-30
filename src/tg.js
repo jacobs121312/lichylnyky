@@ -4,6 +4,7 @@ import { Buffer } from "buffer";
 globalThis.Buffer = globalThis.Buffer || Buffer;
 import { TelegramClient, Api } from "telegram";
 import { StringSession } from "telegram/sessions/index.js";
+import { CustomFile } from "telegram/client/uploads.js";
 import QRCode from "qrcode";
 import { fillVars } from "./scenario.js";
 
@@ -142,6 +143,33 @@ export async function logout() {
   client = null;
   const { apiId, apiHash } = loadCfg();
   saveCfg({ apiId, apiHash });
+}
+
+/* ---------- data sync: one JSON file in the user's Saved Messages ---------- */
+const SYNC_TAG = "#lichylnyky_sync";
+
+export async function syncPull(client) {
+  const c = client || await getClient();
+  if (!c) throw new Error("Спершу увійдіть у Telegram");
+  const msgs = await c.getMessages("me", { search: SYNC_TAG, limit: 5 });
+  const m = msgs.find((x) => x.media?.document);
+  if (!m) return null;
+  const buf = await c.downloadMedia(m, {});
+  return { msgId: m.id, data: JSON.parse(Buffer.from(buf).toString("utf8")) };
+}
+
+export async function syncPush(data, msgId, client) {
+  const c = client || await getClient();
+  if (!c) throw new Error("Спершу увійдіть у Telegram");
+  const buf = Buffer.from(JSON.stringify(data));
+  const file = new CustomFile("lichylnyky-data.json", buf.length, "", buf);
+  const caption = `${SYNC_TAG}\nДані сайту «Лічильники». Не видаляйте це повідомлення: через нього телефон і комп'ютер бачать ті самі показники.\nОновлено ${new Date().toLocaleString("uk-UA")}`;
+  if (msgId) {
+    try { await c.editMessage("me", { message: msgId, text: caption, file, forceDocument: true }); return msgId; }
+    catch (e) { if (!/MESSAGE_NOT_MODIFIED/.test(e.errorMessage || e.message)) console.warn("sync edit failed, sending new", e); else return msgId; }
+  }
+  const m = await c.sendFile("me", { file, caption, forceDocument: true });
+  return m.id;
 }
 
 /* ---------- scenario runner ---------- */

@@ -1,4 +1,5 @@
 import { DEFAULT_SCENARIO, parseScenario, scenarioVars, fillVars } from "./scenario.js";
+import { mergeStates, fingerprint } from "./sync.js";
 
 const tg = () => import("./tg.js");
 
@@ -37,11 +38,42 @@ const botName = b => String(b||"").trim().replace(/^https?:\/\/t\.me\//,"").repl
 
 /* ---------- storage ---------- */
 const LS_KEY = "lichylnyky.v1";
-let docs = {};
-function loadLocal(){ try { docs = JSON.parse(localStorage.getItem(LS_KEY) || "{}").docs || {}; } catch { docs = {}; } }
-function saveLocal(){ try { localStorage.setItem(LS_KEY, JSON.stringify({docs})); } catch { toast("Браузер не дає зберегти дані"); } }
-function put(id, data){ docs[id] = data; saveLocal(); render(); }
-function remove(id){ delete docs[id]; saveLocal(); render(); }
+let docs = {}, deleted = {};
+function loadLocal(){ try { const s = JSON.parse(localStorage.getItem(LS_KEY) || "{}"); docs = s.docs || {}; deleted = s.deleted || {}; } catch { docs = {}; deleted = {}; } }
+function saveLocal(){ try { localStorage.setItem(LS_KEY, JSON.stringify({docs, deleted})); } catch { toast("Браузер не дає зберегти дані"); } scheduleSync(); }
+function put(id, data){ docs[id] = {...data, u: Date.now()}; delete deleted[id]; saveLocal(); render(); }
+function patch(id, fields){ if (docs[id]) put(id, {...docs[id], ...fields}); }
+function remove(id){ delete docs[id]; deleted[id] = Date.now(); saveLocal(); render(); }
+
+/* ---------- sync through the user's Telegram "Saved Messages" ---------- */
+const hasTgSession = () => { try { return !!JSON.parse(localStorage.getItem("lichylnyky.tg") || "{}").session; } catch { return false; } };
+let syncTimer = null, syncing = null, syncAgain = false;
+function syncStatus(text){ const el = $("#sync-status"); if (el) el.textContent = text; }
+function scheduleSync(delay = 1500){ if (!hasTgSession()) return; clearTimeout(syncTimer); syncTimer = setTimeout(runSync, delay); }
+async function runSync(){
+  if (!hasTgSession()) { syncStatus("Дані зберігаються лише в цьому браузері. Увійдіть у Telegram, щоб бачити їх і на телефоні."); return; }
+  if (syncing) { syncAgain = true; return syncing; }
+  syncing = (async () => {
+    syncStatus("Синхронізація з Telegram…");
+    try {
+      const T = await tg();
+      const remote = await T.syncPull();
+      const local = { docs, deleted };
+      const merged = mergeStates(local, remote?.data);
+      if (fingerprint(merged) !== fingerprint(local)) {
+        docs = merged.docs; deleted = merged.deleted;
+        try { localStorage.setItem(LS_KEY, JSON.stringify({docs, deleted})); } catch {}
+        render();
+      }
+      if (!remote || fingerprint(merged) !== fingerprint(remote.data)) await T.syncPush(merged, remote?.msgId);
+      syncStatus(`Синхронізовано через Telegram · ${new Date().toLocaleTimeString("uk-UA",{hour:"2-digit",minute:"2-digit"})}`);
+    } catch (e) {
+      syncStatus("Не вдалося синхронізувати: " + tgError(e));
+    }
+  })();
+  await syncing; syncing = null;
+  if (syncAgain) { syncAgain = false; scheduleSync(300); }
+}
 
 /* ---------- model ---------- */
 const meters = () => Object.entries(docs).filter(([,d]) => d.kind === "meter").map(([id,d]) => ({id,...d})).sort((a,b)=>(a.created||0)-(b.created||0));
@@ -344,7 +376,7 @@ function meterForm(m){
     });
     const del = s.querySelector("#m-del");
     del && armed(del, "Точно видалити разом з історією?", () => {
-      readingsOf(m.id).forEach(r => delete docs[r.id]); remove(m.id); closeSheet(); toast("Лічильник видалено");
+      readingsOf(m.id).forEach(r => remove(r.id)); remove(m.id); closeSheet(); toast("Лічильник видалено");
     });
   });
 }
@@ -429,7 +461,7 @@ async function telegramSheet(){
       <p class="muted">Застосунок надсилає показники ботам від вашого імені, лише коли ви натискаєте «Надіслати». Вхід зберігається тільки в цьому браузері.</p>
       <div class="actions"><button class="btn danger" id="tg-out">Вийти з Telegram</button><button class="btn ghost" data-close>Закрити</button></div>`, s => {
         armed(s.querySelector("#tg-out"), "Точно вийти?", async () => {
-          const { logout } = await tg(); await logout(); refreshTgDot(); closeSheet(); toast("Ви вийшли з Telegram");
+          const { logout } = await tg(); await logout(); refreshTgDot(); closeSheet(); toast("Ви вийшли з Telegram"); runSync();
         });
       });
   }
@@ -496,7 +528,7 @@ function signInSheet(){
       const err = s.querySelector("#l-err"), vQr = s.querySelector("#v-qr"), vPhone = s.querySelector("#v-phone"), vPass = s.querySelector("#v-pass");
       let done = false;
       const fail = ex => { if (done) return; err.hidden = false; err.textContent = tgError(ex); };
-      const success = res => { if (done) return; done = true; refreshTgDot(); closeSheet(); toast(`Підключено${res.me ? ": " + res.me : ""}`); };
+      const success = res => { if (done) return; done = true; refreshTgDot(); closeSheet(); toast(`Підключено${res.me ? ": " + res.me : ""}`); runSync(); };
       s.querySelectorAll("[data-cancel-login]").forEach(b => b.addEventListener("click", () => { done = true; T.cancelLogin(); }));
 
       let passResolve = null;
@@ -592,7 +624,7 @@ async function sendFlow(items){
       await runScenario({ bot, steps, vars, signal: ctl.signal,
         onStep: (i, state) => { const li = list.children[i]; if (li) li.className = (li.className.replace(/\b(run|ok|err)\b/g,"").trim() + " " + state).trim(); },
         onLog: ({who, text, buttons}) => add(who === "me" ? "me" : who === "sys" ? "sys" : "bot", text, buttons?.length ? `<div class="hint" style="margin-top:4px">${buttons.map(esc).join(" · ")}</div>` : "") });
-      docs[readingId] = { ...docs[readingId], sentAt: new Date().toISOString() }; saveLocal(); render();
+      patch(readingId, { sentAt: new Date().toISOString() });
       add("sys ok", "Показник прийнято ✓");
     } catch (e) {
       failed = { meter, readingId };
@@ -686,11 +718,17 @@ $("#ics-btn").addEventListener("click", () => {
   download("lichylnyky-nagaduvannya.ics", ics(), "text/calendar");
   toast("Відкрийте файл, щоб додати нагадування в календар");
 });
-$("#backup").addEventListener("click", () => download(`lichylnyky-${toISO(today0())}.json`, JSON.stringify({docs}, null, 1), "application/json"));
+$("#backup").addEventListener("click", () => download(`lichylnyky-${toISO(today0())}.json`, JSON.stringify({docs, deleted}, null, 1), "application/json"));
 $("#restore").addEventListener("click", () => $("#restore-file").click());
 $("#restore-file").addEventListener("change", async e => {
   const f = e.target.files[0]; if (!f) return;
-  try { const d = JSON.parse(await f.text()).docs; if (!d || typeof d !== "object") throw 0; docs = d; saveLocal(); render(); toast("Дані відновлено"); }
+  try {
+    const backup = JSON.parse(await f.text());
+    if (!backup.docs || typeof backup.docs !== "object") throw 0;
+    // a backup is merged in, so nothing newer on this device is lost
+    const merged = mergeStates({docs, deleted}, {docs: backup.docs, deleted: backup.deleted || {}});
+    docs = merged.docs; deleted = merged.deleted; saveLocal(); render(); toast("Дані відновлено");
+  }
   catch { toast("Це не схоже на резервну копію лічильників"); }
   e.target.value = "";
 });
@@ -722,7 +760,7 @@ document.addEventListener("click", e => {
   if (b.dataset.pick != null) return pickMeter();
   if (b.dataset.hist) return history(find(b.dataset.hist));
   if (b.dataset.edit) { sheetLocked = false; return meterForm(find(b.dataset.edit)); }
-  if (b.dataset.markr) { const id = b.dataset.markr; if (docs[id]) { docs[id] = {...docs[id], sentAt:new Date().toISOString(), sentManually:true}; saveLocal(); render(); } closeSheet(); return toast("Позначено як надіслане"); }
+  if (b.dataset.markr) { const id = b.dataset.markr; patch(id, {sentAt:new Date().toISOString(), sentManually:true}); closeSheet(); return toast("Позначено як надіслане"); }
   if (b.dataset.send) {
     const m = find(b.dataset.send), r = lastUnsent(m);
     if (!r) return;
@@ -731,6 +769,8 @@ document.addEventListener("click", e => {
   if (b.dataset.sendall != null) return sendFlow(meters().filter(canAutoSend).map(m => ({meter:m, r:lastUnsent(m)})).filter(x => x.r).map(x => ({meter:x.meter, readingId:x.r.id})));
 });
 
-loadLocal(); render(); refreshTgDot();
+loadLocal(); render(); refreshTgDot(); runSync();
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") runSync(); });
+setInterval(() => { if (document.visibilityState === "visible") runSync(); }, 5*60*1000);
 // re-evaluate statuses when the date rolls over while the page stays open
 setInterval(render, 60*60*1000);
