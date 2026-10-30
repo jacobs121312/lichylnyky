@@ -4,7 +4,7 @@
   "scripts": {
     "build": "node build.mjs",
     "dev": "node build.mjs --serve",
-    "test": "node --test test/"
+    "test": "node --test test/*.test.js"
   },
   "type": "module",
   "dependencies": {
