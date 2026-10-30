@@ -3,7 +3,7 @@
 import { Buffer } from "buffer";
 globalThis.Buffer = globalThis.Buffer || Buffer;
 import { TelegramClient, Api } from "telegram";
-import { StringSession } from "telegram/sessions";
+import { StringSession } from "telegram/sessions/index.js";
 import QRCode from "qrcode";
 import { fillVars } from "./scenario.js";
 
@@ -161,8 +161,8 @@ async function snapshot(c, peer) {
   return { msgs, map };
 }
 
-export async function runScenario({ bot, steps, vars, onLog, onStep, signal }) {
-  const c = await getClient();
+export async function runScenario({ bot, steps, vars, onLog, onStep, signal, client: injected, pollMs = 800, quietMs = 1500, replyTimeout = 20000 }) {
+  const c = injected || await getClient();
   if (!c) throw new Error("Спершу увійдіть у Telegram");
   const resolve = (name) => c.getInputEntity(name.trim().replace(/^https?:\/\/t\.me\//, "").replace(/^@/, ""));
   let peer = await resolve(bot);
@@ -171,12 +171,12 @@ export async function runScenario({ bot, steps, vars, onLog, onStep, signal }) {
   const stopIfAborted = () => { if (signal?.aborted) throw new Error("Зупинено"); };
 
   // Wait until the bot answers (new or edited messages) and then goes quiet for a moment.
-  async function waitReply(timeout = 20000) {
+  async function waitReply(timeout = replyTimeout) {
     const start = Date.now();
     let changedAt = 0, fresh = [];
     while (Date.now() - start < timeout) {
       stopIfAborted();
-      await sleep(800);
+      await sleep(pollMs);
       const next = await snapshot(c, peer);
       const changed = next.msgs.filter((m) => !m.out && snap.map.get(m.id) !== (m.editDate || 0));
       if (changed.length) {
@@ -184,7 +184,7 @@ export async function runScenario({ bot, steps, vars, onLog, onStep, signal }) {
         for (const m of changed) if (!ids.has(m.id)) fresh.push(m); else fresh = fresh.map((x) => (x.id === m.id ? m : x));
         snap = next;
         changedAt = Date.now();
-      } else if (changedAt && Date.now() - changedAt > 1500) break;
+      } else if (changedAt && Date.now() - changedAt > quietMs) break;
     }
     fresh.sort((a, b) => a.id - b.id).forEach((m) => onLog({ who: "bot", text: m.message || "(без тексту)", buttons: buttonsOf(m).map((b) => b.text) }));
     return fresh;
@@ -250,7 +250,7 @@ export async function runScenario({ bot, steps, vars, onLog, onStep, signal }) {
     if (step.op === "expect") {
       const want = norm(fillVars(step.arg, vars));
       const hit = () => recentReplies.some((m) => norm(m.message).includes(want));
-      if (!hit()) recentReplies.push(...(await waitReply(10000)));
+      if (!hit()) recentReplies.push(...(await waitReply(replyTimeout / 2)));
       if (!hit()) throw new Error(`Рядок ${step.line}: бот не відповів «${step.arg}». Перевірте відповідь вище.`);
     }
   };

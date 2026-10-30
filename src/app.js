@@ -192,7 +192,9 @@ function scheduleHtml(ms){
       const s = w.s < new Date(y,mo,1) ? 1 : (w.s.getMonth()===mo ? w.s.getDate() : null);
       const e = w.e > new Date(y,mo,N) ? N : (w.e.getMonth()===mo ? w.e.getDate() : null);
       if (s == null || e == null || w.e < new Date(y,mo,1) || w.s > new Date(y,mo,N)) continue;
-      const done = rs.some(r => { const d = parseISO(r.date); return d >= new Date(w.s - 5*DAY) && d <= w.e; });
+      // same rule as status(): a reading counts for a window until 5 days before the next one opens
+      const nextS = windowAt(m, y, mo+k+1).s;
+      const done = rs.some(r => { const d = parseISO(r.date); return d >= new Date(w.s - 5*DAY) && d < new Date(nextS - 5*DAY); });
       bars += `<i class="win${done?" done":""}" style="left:${pos(s)}%;width:${((e-s+1)/N*100).toFixed(3)}%" title="${fmtDate(w.s)} – ${fmtDate(w.e)}${done?", подано":""}"></i>`;
     }
     const marks = rs.filter(r => { const d = parseISO(r.date); return d.getFullYear()===y && d.getMonth()===mo; })

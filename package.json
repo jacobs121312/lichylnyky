@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "scripts": {
     "build": "node build.mjs",
-    "dev": "node build.mjs --serve"
+    "dev": "node build.mjs --serve",
+    "test": "node --test test/"
   },
   "type": "module",
   "dependencies": {
