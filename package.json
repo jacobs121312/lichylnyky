@@ -8,6 +8,7 @@
   "type": "module",
   "dependencies": {
     "buffer": "6.0.3",
+    "qrcode": "1.5.4",
     "telegram": "2.26.21"
   },
   "devDependencies": {

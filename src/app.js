@@ -297,7 +297,7 @@ async function telegramSheet(){
         });
       });
   }
-  openSheet(`<div class="bar"><div><span class="eyebrow">Telegram</span><h2>Увійти, щоб надсилати показники ботам</h2></div><button class="x" data-close aria-label="Закрити">×</button></div>
+  openSheet(`<div class="bar"><div><span class="eyebrow">Telegram · крок 1 з 2</span><h2>Ключі доступу</h2></div><button class="x" data-close aria-label="Закрити">×</button></div>
     <p class="muted">Сайт підключається до Telegram як ще один ваш пристрій, так само як Telegram Desktop. Для цього потрібні два ключі, які Telegram видає безкоштовно:</p>
     <ol class="muted" style="margin:0;padding-left:20px;display:flex;flex-direction:column;gap:4px">
       <li>Відкрийте <a href="https://my.telegram.org/apps" target="_blank" rel="noopener">my.telegram.org/apps</a> і увійдіть своїм номером.</li>
@@ -307,43 +307,110 @@ async function telegramSheet(){
     <form class="f" id="tf">
       <div class="two">
         <div class="fld"><label for="t-id">api_id</label><input id="t-id" inputmode="numeric" required value="${esc(cfg.apiId)}" autocomplete="off"></div>
-        <div class="fld"><label for="t-hash">api_hash</label><input id="t-hash" required autocomplete="off" spellcheck="false" placeholder="${cfg.hasHash ? "збережено, можна не вводити" : ""}"></div>
+        <div class="fld"><label for="t-hash">api_hash</label><input id="t-hash" ${cfg.hasHash ? "" : "required"} autocomplete="off" spellcheck="false" placeholder="${cfg.hasHash ? "збережено, можна не вводити" : ""}"></div>
       </div>
-      <div class="fld" id="t-ask" hidden><label for="t-ans" id="t-ask-l"></label><input id="t-ans" autocomplete="off"><span class="hint" id="t-ask-h"></span></div>
       <div class="note-warn" id="t-err" hidden></div>
       <div class="form-actions"><span class="hint">Ключі й вхід зберігаються лише в цьому браузері й нікуди, крім серверів Telegram, не передаються.</span>
-        <div class="actions"><button type="button" class="btn ghost" data-close>Скасувати</button><button class="btn tg" id="t-go">Увійти</button></div></div>
+        <div class="actions"><button type="button" class="btn ghost" data-close>Скасувати</button><button class="btn tg" id="t-go">Далі</button></div></div>
     </form>`, s => {
-      const form = s.querySelector("#tf"), go = s.querySelector("#t-go"), err = s.querySelector("#t-err");
-      const askBox = s.querySelector("#t-ask"), ans = s.querySelector("#t-ans");
-      if (cfg.hasHash) s.querySelector("#t-hash").required = false;
-      let pending = null; // resolver for the current question
-      const ASK = {
-        phone: ["Номер телефону", "У міжнародному форматі, наприклад +380501234567", "tel"],
-        code: ["Код підтвердження", "Telegram надіслав код у застосунок Telegram на іншому пристрої (або SMS)", "numeric"],
-        password: ["Пароль двоетапної перевірки", "Хмарний пароль, який ви встановили в налаштуваннях Telegram", "text"],
-      };
-      const ask = kind => new Promise(res => {
-        const [l, h, mode] = ASK[kind];
-        askBox.hidden = false; s.querySelector("#t-ask-l").textContent = l; s.querySelector("#t-ask-h").textContent = h;
-        ans.type = kind === "password" ? "password" : "text"; ans.inputMode = mode; ans.value = ""; ans.focus();
-        go.disabled = false; go.textContent = "Далі"; pending = res;
-      });
-      form.addEventListener("submit", async e => {
+      const go = s.querySelector("#t-go"), err = s.querySelector("#t-err");
+      s.querySelector("#tf").addEventListener("submit", async e => {
         e.preventDefault(); err.hidden = true;
-        if (pending){ const r = pending; pending = null; go.disabled = true; go.textContent = "Перевіряю…"; r(ans.value.trim()); return; }
         go.disabled = true; go.textContent = "Підключаюсь…";
         const apiId = s.querySelector("#t-id").value.trim();
         let apiHash = s.querySelector("#t-hash").value.trim();
         if (!apiHash && cfg.hasHash) { try { apiHash = JSON.parse(localStorage.getItem("lichylnyky.tg")).apiHash; } catch {} }
+        try { await (await tg()).beginLogin({ apiId, apiHash }); signInSheet(); }
+        catch (ex) { go.disabled = false; go.textContent = "Далі"; err.hidden = false; err.textContent = tgError(ex); }
+      });
+    });
+}
+
+// Step 2: QR code (recommended, no code needed) or phone number + code.
+function signInSheet(){
+  openSheet(`<div class="bar"><div><span class="eyebrow">Telegram · крок 2 з 2</span><h2>Вхід в акаунт</h2></div><button class="x" data-close data-cancel-login aria-label="Закрити">×</button></div>
+    <div class="actions" role="tablist">
+      <button class="btn sm primary" id="mode-qr" role="tab" aria-selected="true">QR-код</button>
+      <button class="btn sm" id="mode-phone" role="tab" aria-selected="false">За номером телефону</button>
+    </div>
+    <div id="v-qr" style="display:flex;flex-direction:column;gap:12px">
+      <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:center">
+        <div id="qr" style="width:200px;height:200px;background:#fff;border-radius:12px;padding:8px;display:grid;place-items:center;color:#5A6774;flex:none">Готую код…</div>
+        <ol style="margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px;flex:1 1 220px;min-width:0">
+          <li>Відкрийте Telegram на телефоні.</li>
+          <li><b>Налаштування → Пристрої → Підключити пристрій</b> (Link Desktop Device).</li>
+          <li>Наведіть камеру на цей код.</li>
+        </ol>
+      </div>
+      <span class="hint">Код оновлюється кожні 30 секунд, просто тримайте сторінку відкритою.</span>
+    </div>
+    <form class="f" id="v-phone" hidden>
+      <div class="fld"><label for="p-num">Номер телефону</label><input id="p-num" type="tel" inputmode="tel" autocomplete="tel" placeholder="+380501234567"></div>
+      <div id="p-sent" class="calc" style="grid-template-columns:1fr" hidden></div>
+      <div class="fld" id="p-code-box" hidden><label for="p-code">Код підтвердження</label><input id="p-code" inputmode="numeric" autocomplete="one-time-code"></div>
+      <div class="actions"><button class="btn tg" id="p-go">Надіслати код</button><button type="button" class="btn" id="p-resend" hidden></button></div>
+    </form>
+    <form class="f" id="v-pass" hidden>
+      <div class="fld"><label for="pw">Пароль двоетапної перевірки</label><input id="pw" type="password" autocomplete="current-password"><span class="hint" id="pw-hint"></span></div>
+      <div class="actions"><button class="btn tg" id="pw-go">Увійти</button></div>
+    </form>
+    <div class="note-warn" id="l-err" hidden></div>
+    <div class="actions"><button class="btn ghost" data-close data-cancel-login>Скасувати</button></div>`, async s => {
+      const T = await tg();
+      const err = s.querySelector("#l-err"), vQr = s.querySelector("#v-qr"), vPhone = s.querySelector("#v-phone"), vPass = s.querySelector("#v-pass");
+      let done = false;
+      const fail = ex => { if (done) return; err.hidden = false; err.textContent = tgError(ex); };
+      const success = res => { if (done) return; done = true; refreshTgDot(); closeSheet(); toast(`Підключено${res.me ? ": " + res.me : ""}`); };
+      s.querySelectorAll("[data-cancel-login]").forEach(b => b.addEventListener("click", () => { done = true; T.cancelLogin(); }));
+
+      let passResolve = null;
+      const askPassword = hint => new Promise(res => {
+        vQr.hidden = true; vPhone.hidden = true; vPass.hidden = false; s.querySelector("#mode-qr").parentElement.hidden = true;
+        s.querySelector("#pw-hint").textContent = hint ? `Підказка: ${hint}` : "Хмарний пароль, який ви встановили в налаштуваннях Telegram";
+        s.querySelector("#pw").focus(); passResolve = res;
+      });
+      vPass.addEventListener("submit", e => { e.preventDefault(); err.hidden = true; if (passResolve) { const r = passResolve; passResolve = null; s.querySelector("#pw-go").disabled = true; r(s.querySelector("#pw").value); } });
+
+      const setMode = m => {
+        vQr.hidden = m !== "qr"; vPhone.hidden = m !== "phone"; err.hidden = true;
+        s.querySelector("#mode-qr").classList.toggle("primary", m === "qr"); s.querySelector("#mode-qr").setAttribute("aria-selected", m === "qr");
+        s.querySelector("#mode-phone").classList.toggle("primary", m === "phone"); s.querySelector("#mode-phone").setAttribute("aria-selected", m === "phone");
+        if (m === "phone") s.querySelector("#p-num").focus();
+      };
+      s.querySelector("#mode-qr").addEventListener("click", () => setMode("qr"));
+      s.querySelector("#mode-phone").addEventListener("click", () => setMode("phone"));
+
+      T.loginWithQr({ onQr: async url => { if (!done) s.querySelector("#qr").innerHTML = await T.qrSvg(url); }, askPassword })
+        .then(success, fail);
+
+      const go = s.querySelector("#p-go"), resend = s.querySelector("#p-resend"), sent = s.querySelector("#p-sent");
+      const showSent = info => {
+        sent.hidden = false;
+        sent.innerHTML = `<span>Telegram надіслав код <b>${esc(info.where)}</b>.</span>` +
+          (info.viaApp ? `<span class="muted">Шукайте повідомлення від «Telegram» у списку чатів, воно може бути в архіві. SMS у цьому разі не приходить.</span>` : "");
+        resend.hidden = !info.next; resend.textContent = info.next ? `Надіслати ${info.next}` : "";
+        s.querySelector("#p-code-box").hidden = false; s.querySelector("#p-code").focus();
+        go.disabled = false; go.textContent = "Увійти";
+      };
+      vPhone.addEventListener("submit", async e => {
+        e.preventDefault(); err.hidden = true;
+        const codeBox = s.querySelector("#p-code-box");
+        go.disabled = true;
         try {
-          const { login } = await tg();
-          const res = await login({ apiId, apiHash }, ask);
-          refreshTgDot(); closeSheet(); toast(`Підключено${res.me ? ": " + res.me : ""}`);
-        } catch (ex) {
-          pending = null; askBox.hidden = true; go.disabled = false; go.textContent = "Увійти";
-          err.hidden = false; err.textContent = tgError(ex);
-        }
+          if (codeBox.hidden) {
+            const phone = s.querySelector("#p-num").value.replace(/[\s()-]/g, "");
+            go.textContent = "Надсилаю…";
+            const info = await T.sendPhoneCode(phone);
+            return info.done ? success(info.done) : showSent(info);
+          }
+          go.textContent = "Перевіряю…";
+          success(await T.signInWithCode(s.querySelector("#p-code").value.replace(/\D/g, ""), askPassword));
+        } catch (ex) { go.disabled = false; go.textContent = codeBox.hidden ? "Надіслати код" : "Увійти"; fail(ex); }
+      });
+      resend.addEventListener("click", async () => {
+        err.hidden = true; resend.disabled = true;
+        try { showSent(await T.resendPhoneCode()); } catch (ex) { fail(ex); }
+        resend.disabled = false;
       });
     });
 }
@@ -351,9 +418,13 @@ function tgError(e){
   const m = e?.errorMessage || e?.message || String(e);
   if (/API_ID_INVALID|api_id/i.test(m)) return "Telegram не прийняв api_id або api_hash. Перевірте їх на my.telegram.org/apps.";
   if (/PHONE_NUMBER_INVALID/.test(m)) return "Неправильний номер телефону. Введіть його у форматі +380…";
-  if (/PHONE_CODE_INVALID|PHONE_CODE_EXPIRED/.test(m)) return "Код неправильний або застарів. Спробуйте увійти ще раз.";
+  if (/PHONE_CODE_INVALID/.test(m)) return "Код неправильний. Перевірте цифри й спробуйте ще раз.";
+  if (/PHONE_CODE_EXPIRED/.test(m)) return "Код застарів. Натисніть «Скасувати» й почніть вхід знову.";
   if (/PASSWORD_HASH_INVALID/.test(m)) return "Неправильний пароль двоетапної перевірки.";
-  if (/FLOOD_WAIT/.test(m)) return "Telegram просить зачекати перед наступною спробою. Спробуйте пізніше.";
+  if (/FLOOD_WAIT/.test(m)) { const sec = +(m.match(/\d+/)?.[0] || 0); return `Забагато спроб. Telegram дозволить знову ${sec > 90 ? `приблизно через ${Math.ceil(sec/60)} хв` : "за хвилину"}. Поки що спробуйте QR-код.`; }
+  if (/EMAIL_SETUP_REQUIRED/.test(m)) return "Telegram вимагає прив'язати пошту для входу з нового застосунку. Увійдіть через QR-код: там пошта не потрібна.";
+  if (/AUTH_TOKEN_EXPIRED/.test(m)) return "QR-код застарів. Закрийте вікно й почніть вхід знову.";
+  if (/PHONE_NUMBER_BANNED/.test(m)) return "Telegram заблокував цей номер.";
   if (/USERNAME_NOT_OCCUPIED|USERNAME_INVALID|No user has/i.test(m)) return "Не знайшов такого бота. Перевірте @назву в налаштуваннях лічильника.";
   return m;
 }
